@@ -1,0 +1,39 @@
+{
+  "xsappname": "hyperspace-llm-proxy-studio",
+  "tenant-mode": "dedicated",
+  "description": "Authentication descriptor for Hyperspace LLM Proxy Studio.",
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.User",
+      "description": "Use the studio (chat + settings)."
+    },
+    {
+      "name": "$XSAPPNAME.Admin",
+      "description": "Administer the studio (rotate AI Core overrides, change RG)."
+    }
+  ],
+  "role-templates": [
+    {
+      "name": "StudioUser",
+      "description": "Send chat requests; view settings.",
+      "scope-references": ["$XSAPPNAME.User"]
+    },
+    {
+      "name": "StudioAdmin",
+      "description": "All User permissions plus runtime config changes.",
+      "scope-references": ["$XSAPPNAME.User", "$XSAPPNAME.Admin"]
+    }
+  ],
+  "role-collections": [
+    {
+      "name": "Hyperspace Studio User",
+      "description": "End users of the chat playground.",
+      "role-template-references": ["$XSAPPNAME.StudioUser"]
+    },
+    {
+      "name": "Hyperspace Studio Admin",
+      "description": "Administrators with credential rotation rights.",
+      "role-template-references": ["$XSAPPNAME.StudioAdmin"]
+    }
+  ]
+}

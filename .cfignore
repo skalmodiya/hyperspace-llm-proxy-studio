@@ -1,0 +1,40 @@
+# Cloud Foundry build context — exclude development files from the droplet.
+# Smaller droplet = faster `cf deploy` and faster instance starts.
+
+node_modules
+.next/cache
+.git
+.github
+.vscode
+.idea
+.DS_Store
+*.log
+
+# Local env files — never push these to CF, the binding provides credentials.
+.env
+.env.*
+!.env.example
+docker.env
+aicore-key*.json
+*-service-key.json
+
+# Tests — not needed at runtime
+**/__tests__
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+vitest.config.ts
+vitest.setup.ts
+coverage
+
+# Docker artifacts (CF uses the buildpack, not the image)
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker.env.example
+
+# Source maps + source files — buildpack uses the .next/standalone output
+# (we keep src/ in the droplet for the buildpack run, but the standalone
+# output has only what's needed at runtime).
+*.tsbuildinfo

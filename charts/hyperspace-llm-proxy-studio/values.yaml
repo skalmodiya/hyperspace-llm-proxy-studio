@@ -1,0 +1,111 @@
+# Default values for hyperspace-llm-proxy-studio.
+# Override per-environment with `helm upgrade --install -f values-prod.yaml`.
+
+# ---- Application image -------------------------------------------------------
+image:
+  # Build & push the Dockerfile in the project root, then set the registry path
+  # here. Example:
+  #   docker buildx build --platform=linux/amd64 -t <registry>/hyperspace-studio:0.1.0 .
+  #   docker push <registry>/hyperspace-studio:0.1.0
+  repository: hyperspace-llm-proxy-studio
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+replicaCount: 1
+
+# ---- Service / pod ----------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 768Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+# ---- App configuration -------------------------------------------------------
+config:
+  # AI Core resource group sent on every call (override per environment).
+  aiCoreResourceGroup: default
+
+  # On Kyma we ship AI Core only.
+  enableHyperspaceProviders: "false"
+  enableSapAiCore: "true"
+
+  # Hide Embeddings / Models / Health from the sidebar.
+  btpTrimMode: "true"
+
+# ---- AI Core service binding ------------------------------------------------
+# Two ways to provide credentials:
+#
+#   A) BTP Service Operator (recommended) — the Helm chart provisions a
+#      ServiceInstance + ServiceBinding. Kyma writes a Secret named
+#      `<release>-aicore-binding` containing the parsed service key fields.
+#      We map a single key from that Secret into the AICORE_SERVICE_KEY_JSON
+#      env var on the pod.
+#
+#   B) Pre-existing Secret — set serviceOperator.enabled=false and
+#      serviceOperator.existingSecretName=<your-secret>. The Secret must
+#      contain a key named `service-key.json` with the full AI Core service key.
+serviceOperator:
+  enabled: true
+  # The btp-service-operator's offering + plan names for AI Core:
+  offering: aicore
+  plan: standard
+  # Name of the ServiceBinding (and resulting Secret) created by this chart.
+  bindingName: aicore-binding
+  # If you already have a manually-created Secret, set this and disable above.
+  existingSecretName: ""
+  # Key inside the secret that holds the full service key JSON blob.
+  secretKey: service-key.json
+
+# ---- Public ingress (Kyma APIRule) -------------------------------------------
+apiRule:
+  enabled: true
+  # Kyma provides this domain on most clusters; override if your cluster differs.
+  host: hyperspace-studio
+  gateway: kyma-system/kyma-gateway
+  # Two auth modes:
+  #   - "noAuth": anyone with the URL can reach the app. Use only behind a
+  #     private network or for a private demo.
+  #   - "jwt":   validate XSUAA tokens on the APIRule. Required for prod.
+  authMode: jwt
+  jwt:
+    # Pull these from your XSUAA service key (`url` becomes the issuer; the
+    # JWKS URL is `<url>/token_keys`).
+    issuer: https://<your-xsuaa-subdomain>.authentication.<region>.hana.ondemand.com/oauth/token
+    jwksUri: https://<your-xsuaa-subdomain>.authentication.<region>.hana.ondemand.com/token_keys
+    audiences:
+      - hyperspace-llm-proxy-studio
+
+# ---- Probes ------------------------------------------------------------------
+probes:
+  liveness:
+    path: /api/health
+    initialDelaySeconds: 15
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    path: /api/health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3

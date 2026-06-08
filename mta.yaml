@@ -1,0 +1,99 @@
+_schema-version: "3.3.0"
+ID: hyperspace-llm-proxy-studio
+description: "Hyperspace LLM Proxy Studio (SAP AI Core, BTP-hardened)"
+version: 0.1.0
+
+# Build with: mbt build
+# Deploy with: cf deploy mta_archives/hyperspace-llm-proxy-studio_0.1.0.mtar
+
+parameters:
+  enable-parallel-deployments: true
+  # Override at deploy time:  cf deploy ... -e AI_RG=production
+  ai-resource-group: ${AI_RG:default}
+
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npm ci
+        - npm run build
+
+modules:
+  # ----------------------------------------------------------------------------
+  # 1. Approuter — the only module with a public route. Validates the XSUAA JWT
+  #    on every request and forwards to the studio module.
+  # ----------------------------------------------------------------------------
+  - name: studio-approuter
+    type: nodejs
+    path: approuter
+    parameters:
+      memory: 256M
+      disk-quota: 512M
+    requires:
+      - name: studio-xsuaa
+      - name: studio-srv-api
+        group: destinations
+        properties:
+          name: studio-srv
+          url: ~{url}
+          forwardAuthToken: true
+
+  # ----------------------------------------------------------------------------
+  # 2. Studio — the Next.js app. `no-route: true` keeps it off the public
+  #    internet; the Approuter reaches it on the internal CF network.
+  # ----------------------------------------------------------------------------
+  - name: studio-srv
+    type: nodejs
+    path: .
+    parameters:
+      memory: 512M
+      disk-quota: 1024M
+      buildpack: nodejs_buildpack
+      command: node .next/standalone/server.js
+      no-route: true
+      routes:
+        - route: studio-srv.${default-domain}
+          no-hostname: false
+    properties:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 8080
+      # Disable Hyperspace + 4 providers on BTP (only AI Core).
+      ENABLE_HYPERSPACE_PROVIDERS: "false"
+      ENABLE_SAP_AI_CORE: "true"
+      # Trim Embeddings/Models/Health from the sidebar (per BTP_TRIM_MODE=true).
+      BTP_TRIM_MODE: "true"
+      AICORE_RESOURCE_GROUP: ${ai-resource-group}
+    provides:
+      - name: studio-srv-api
+        properties:
+          url: "${default-url}"
+    requires:
+      - name: studio-aicore
+      - name: studio-xsuaa
+
+# ------------------------------------------------------------------------------
+# Resources — services bound to the modules above.
+# ------------------------------------------------------------------------------
+resources:
+  # SAP AI Core service instance. Inferred-as-binding: VCAP_SERVICES.aicore[0]
+  # is what credentials.ts reads on startup.
+  - name: studio-aicore
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: aicore
+      service-plan: standard
+      service-name: studio-aicore-instance
+
+  # XSUAA application — provides the JWT validation Approuter relies on.
+  # xs-security.json defines xsappname, scopes, role-templates.
+  - name: studio-xsuaa
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      service-name: studio-xsuaa-instance
+      path: ./xs-security.json
+      config:
+        xsappname: hyperspace-llm-proxy-studio-${space}
+        tenant-mode: dedicated

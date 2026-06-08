@@ -1,0 +1,41 @@
+# Build context exclusions — keep secrets out of layers and shrink the upload.
+
+# Build artifacts
+node_modules
+.next
+.turbo
+coverage
+*.tsbuildinfo
+
+# Local dev / IDE
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+*.log
+
+# Env: never bake these into the image.
+.env
+.env.*
+!.env.example
+
+# SAP AI Core service keys must never enter image layers either.
+aicore-key*.json
+*-service-key.json
+
+# Docker / docs (already in repo, no need in build context)
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml
+README.md
+
+# Tests — not needed in the production image
+**/__tests__
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+vitest.config.ts
+vitest.setup.ts

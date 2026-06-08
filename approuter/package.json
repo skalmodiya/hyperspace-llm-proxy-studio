@@ -1,0 +1,15 @@
+{
+  "name": "studio-approuter",
+  "version": "1.0.0",
+  "description": "SAP Approuter for Hyperspace LLM Proxy Studio (XSUAA + JWT).",
+  "private": true,
+  "engines": {
+    "node": "^20"
+  },
+  "dependencies": {
+    "@sap/approuter": "^16"
+  },
+  "scripts": {
+    "start": "node node_modules/@sap/approuter/approuter.js"
+  }
+}

@@ -1,0 +1,38 @@
+{{- if .Values.apiRule.enabled }}
+apiVersion: gateway.kyma-project.io/v1beta1
+kind: APIRule
+metadata:
+  name: {{ include "studio.fullname" . }}
+  labels:
+    {{- include "studio.labels" . | nindent 4 }}
+spec:
+  host: {{ .Values.apiRule.host }}
+  service:
+    name: {{ include "studio.fullname" . }}
+    port: {{ .Values.service.port }}
+  gateway: {{ .Values.apiRule.gateway }}
+  rules:
+    {{- if eq .Values.apiRule.authMode "jwt" }}
+    # XSUAA JWT enforced on every route.
+    - path: /.*
+      methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS", "HEAD"]
+      accessStrategies:
+        - handler: jwt
+          config:
+            trusted_issuers:
+              - {{ .Values.apiRule.jwt.issuer | quote }}
+            jwks_urls:
+              - {{ .Values.apiRule.jwt.jwksUri | quote }}
+            {{- with .Values.apiRule.jwt.audiences }}
+            target_audience:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+    {{- else }}
+    # No-auth mode: anyone with the URL can reach the app. Suitable only for
+    # private clusters or short-lived demos.
+    - path: /.*
+      methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS", "HEAD"]
+      accessStrategies:
+        - handler: noop
+    {{- end }}
+{{- end }}

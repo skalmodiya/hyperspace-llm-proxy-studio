@@ -1,0 +1,18 @@
+apiVersion: v2
+name: hyperspace-llm-proxy-studio
+description: |
+  Hyperspace LLM Proxy Studio for SAP BTP Kyma — Next.js app + SAP AI Core
+  service binding via the BTP Service Operator. Optional XSUAA-backed JWT
+  validation on the APIRule for production deployments.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - sap
+  - btp
+  - kyma
+  - ai-core
+  - llm
+home: https://example.com/hyperspace-llm-proxy-studio
+maintainers:
+  - name: Hyperspace Studio Team

@@ -1,0 +1,29 @@
+{{- if and .Values.serviceOperator.enabled (not .Values.serviceOperator.existingSecretName) }}
+# Provision an SAP AI Core service instance via the BTP Service Operator.
+# Pre-req on the cluster:
+#   - kymactl install module btp-operator   (or via Kyma Console: Modules → BTP Operator)
+#   - A SAP BTP global account credential is configured for the operator.
+apiVersion: services.cloud.sap.com/v1
+kind: ServiceInstance
+metadata:
+  name: {{ .Release.Name }}-aicore
+  labels:
+    {{- include "studio.labels" . | nindent 4 }}
+spec:
+  serviceOfferingName: {{ .Values.serviceOperator.offering | quote }}
+  servicePlanName: {{ .Values.serviceOperator.plan | quote }}
+---
+apiVersion: services.cloud.sap.com/v1
+kind: ServiceBinding
+metadata:
+  name: {{ .Release.Name }}-{{ .Values.serviceOperator.bindingName }}
+  labels:
+    {{- include "studio.labels" . | nindent 4 }}
+spec:
+  serviceInstanceName: {{ .Release.Name }}-aicore
+  # The BTP Service Operator writes individual fields of the service key into
+  # the resulting Secret as separate keys, AND a `parameters` field at the top
+  # level if requested. We use `secretRootKey` to flatten everything into one
+  # JSON blob under the key the chart's deployment.yaml reads.
+  secretKey: {{ .Values.serviceOperator.secretKey }}
+{{- end }}

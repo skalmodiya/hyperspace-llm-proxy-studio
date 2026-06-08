@@ -1,0 +1,36 @@
+# Fallback `cf push` manifest for the studio module ONLY.
+#
+# Prefer `mta.yaml` for production — it provisions the AI Core service, the
+# XSUAA service, and the Approuter atomically. Use this manifest only if you
+# have already created the services manually and you don't need the
+# Approuter (e.g. for a quick smoke test in a private dev space).
+#
+# Pre-reqs (one-time):
+#   cf create-service aicore standard studio-aicore-instance
+#   cf create-service xsuaa application studio-xsuaa-instance -c xs-security.json
+#
+# Then:
+#   npm ci && npm run build
+#   cf push -f manifest.yml
+
+applications:
+  - name: hyperspace-llm-proxy-studio
+    memory: 512M
+    disk_quota: 1G
+    instances: 1
+    buildpacks:
+      - nodejs_buildpack
+    command: node .next/standalone/server.js
+    health-check-type: http
+    health-check-http-endpoint: /api/health
+    env:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 8080
+      ENABLE_HYPERSPACE_PROVIDERS: "false"
+      ENABLE_SAP_AI_CORE: "true"
+      BTP_TRIM_MODE: "true"
+      AICORE_RESOURCE_GROUP: default
+    services:
+      - studio-aicore-instance
+      - studio-xsuaa-instance

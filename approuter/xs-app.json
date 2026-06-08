@@ -1,0 +1,34 @@
+{
+  "welcomeFile": "/chat",
+  "authenticationMethod": "route",
+  "sessionTimeout": 30,
+  "logout": {
+    "logoutEndpoint": "/logout",
+    "logoutPage": "/"
+  },
+  "routes": [
+    {
+      "//": "Static assets — public, no auth (CSS/JS chunks served by Next.js).",
+      "source": "^/_next/(.*)$",
+      "target": "/_next/$1",
+      "destination": "studio-srv",
+      "authenticationType": "none"
+    },
+    {
+      "//": "Favicon — public.",
+      "source": "^/favicon.ico$",
+      "target": "/favicon.ico",
+      "destination": "studio-srv",
+      "authenticationType": "none"
+    },
+    {
+      "//": "Everything else requires a valid XSUAA JWT with the User scope.",
+      "source": "^/(.*)$",
+      "target": "/$1",
+      "destination": "studio-srv",
+      "authenticationType": "xsuaa",
+      "scope": "$XSAPPNAME.User",
+      "csrfProtection": false
+    }
+  ]
+}

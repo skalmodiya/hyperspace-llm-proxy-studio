@@ -1,0 +1,4 @@
+# Skip Helm packaging of internal files
+.helmignore
+*.tgz
+.git

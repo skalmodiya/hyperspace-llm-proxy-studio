@@ -1,0 +1,48 @@
+services:
+  studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hyperspace-llm-proxy-studio:latest
+    container_name: hyperspace-studio
+    ports:
+      - "3000:3000"
+    # Environment loading strategy (precedence: lower wins; env_file overrides
+    # shell variable expansion in `environment:`):
+    #
+    #   1. docker.env  — Docker-specific values (correct host.docker.internal
+    #                    URL + your API key). `required: false` so compose
+    #                    starts even if you haven't created it yet.
+    #   2. .env.local  — your dev env (proxy URL there is "localhost:6655",
+    #                    which is the *container's* localhost — useless inside
+    #                    Docker — so docker.env intentionally overrides it).
+    #
+    # Copy docker.env.example → docker.env and add your API key before `up`.
+    env_file:
+      - path: .env.local
+        required: false
+      - path: docker.env
+        required: false
+    environment:
+      NODE_ENV: production
+      # Hard fallback if neither env_file provided one.
+      HYPERSPACE_PROXY_URL: ${HYPERSPACE_PROXY_URL:-http://host.docker.internal:6655}
+      # Where the SAP AI Core service key file is mounted inside the container.
+      # docker.env sets this too; we also pin it here so a missing docker.env
+      # doesn't break the wiring.
+      AICORE_SERVICE_KEY_PATH: /run/secrets/aicore-key.json
+    extra_hosts:
+      # Lets host.docker.internal resolve on Linux too (Docker Desktop adds it natively).
+      - "host.docker.internal:host-gateway"
+    # Mount the SAP AI Core service key from the host. This avoids having to
+    # encode the JSON (with $ chars) into an env var, which Compose tries to
+    # shell-expand. The file is gitignored + dockerignored.
+    volumes:
+      - ./aicore-key.json:/run/secrets/aicore-key.json:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
