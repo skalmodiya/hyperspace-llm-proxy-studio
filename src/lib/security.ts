@@ -9,7 +9,16 @@
  *   2. The Hyperspace proxy URL is user-configurable but must not target
  *      cloud-internal metadata endpoints (169.254.169.254), localhost, or
  *      RFC1918 ranges from production. Allowed in dev only.
+ *
+ * Note on TOCTOU: a hostname can resolve to a public IP at validation time
+ * and a private IP at fetch time (DNS rebinding). The robust fix is
+ * platform-level egress firewall rules (Kyma NetworkPolicy, CF egress).
+ * As code-level defense in depth, `assertProxyUrlAndResolve()` returns the
+ * resolved IP so the caller can connect to it directly via undici's
+ * `lookup` option. Without that, we accept the residual TOCTOU risk in
+ * exchange for a much simpler call site.
  */
+import { promises as dns } from "node:dns";
 
 const SAP_AICORE_API_HOST_SUFFIXES = [
   // Production AI Core API hosts — covers AWS, Azure, GCP regions.
@@ -18,26 +27,19 @@ const SAP_AICORE_API_HOST_SUFFIXES = [
   ".aicore.cfapps.sap.hana.ondemand.com",
 ];
 
-const SAP_AUTH_HOST_SUFFIXES = [
-  // XSUAA token endpoints — every BTP subaccount uses this pattern.
-  ".authentication.sap.hana.ondemand.com",
-  ".authentication.eu10.hana.ondemand.com",
-  ".authentication.eu20.hana.ondemand.com",
-  ".authentication.us10.hana.ondemand.com",
-  ".authentication.us20.hana.ondemand.com",
-  ".authentication.us30.hana.ondemand.com",
-  ".authentication.ap10.hana.ondemand.com",
-  ".authentication.ap11.hana.ondemand.com",
-  ".authentication.ap20.hana.ondemand.com",
-  ".authentication.ap21.hana.ondemand.com",
-  ".authentication.jp10.hana.ondemand.com",
-  ".authentication.jp20.hana.ondemand.com",
-  ".authentication.ca10.hana.ondemand.com",
-  ".authentication.br10.hana.ondemand.com",
-  ".authentication.br20.hana.ondemand.com",
-  // Catch-all — every BTP region follows ".authentication.<region>.hana.ondemand.com".
-  ".hana.ondemand.com",
-];
+/**
+ * XSUAA token endpoints. Pattern is always
+ * `<tenant>.authentication.<region>.hana.ondemand.com` where `<region>` is
+ * a 2-letter prefix + 1–2 digit suffix (e.g. eu10, us30, ap21, jp10, br20,
+ * ca10). The `sap` central tenant is the one historical exception.
+ *
+ * The previous implementation included ".hana.ondemand.com" as a catch-all
+ * suffix — that was too broad and would have accepted any
+ * `*.hana.ondemand.com` host (HANA service URLs, Cloud Connector, etc.).
+ * We now match a tight regex per call.
+ */
+const XSUAA_TOKEN_HOST_RE =
+  /^[a-z0-9-]+\.authentication\.(?:[a-z]{2}\d{1,2}|sap)\.hana\.ondemand\.com$/i;
 
 /** Throws if `url` is not a valid SAP AI Core API URL. */
 export function assertAiCoreApiUrl(url: string): URL {
@@ -56,10 +58,10 @@ export function assertAiCoreApiUrl(url: string): URL {
 /** Throws if `url` is not a valid SAP XSUAA token URL. */
 export function assertXsuaaTokenUrl(url: string): URL {
   const parsed = parseStrictHttps(url, "XSUAA token URL");
-  if (!matchesSuffix(parsed.hostname, SAP_AUTH_HOST_SUFFIXES)) {
+  if (!XSUAA_TOKEN_HOST_RE.test(parsed.hostname)) {
     throw new SecurityError(
       `Refusing to use XSUAA token URL with host "${parsed.hostname}". ` +
-        `Expected an SAP authentication host (*.authentication.<region>.hana.ondemand.com).`
+        `Expected the pattern <tenant>.authentication.<region>.hana.ondemand.com.`
     );
   }
   return parsed;
@@ -85,6 +87,50 @@ export function assertProxyUrl(url: string): URL {
     throw new SecurityError(
       `Refusing to use cloud instance-metadata endpoint as proxy URL.`
     );
+  }
+  return parsed;
+}
+
+/**
+ * Like `assertProxyUrl`, but ALSO performs DNS resolution and rejects if any
+ * resolved A/AAAA record points at a private/loopback/link-local address in
+ * production. Use this in PATCH /api/settings before saving the URL — it
+ * catches DNS-rebinding-style attacks where `attacker.example.com` resolves
+ * to `127.0.0.1` or `169.254.169.254`.
+ *
+ * Caveats:
+ *  - Off-production (NODE_ENV !== "production") this only enforces the
+ *    string-level guards; localhost-resolving names are allowed so dev
+ *    workflows aren't broken.
+ *  - There is still a TOCTOU window between this validation and the
+ *    eventual fetch. The platform-level egress firewall is the durable fix.
+ */
+export async function assertProxyUrlAndResolve(url: string): Promise<URL> {
+  const parsed = assertProxyUrl(url);
+  if (process.env.NODE_ENV !== "production") return parsed;
+
+  // Skip DNS resolution if the host is already a literal IP — assertProxyUrl
+  // covered that case via isPrivateOrLoopbackHost.
+  if (isIpLiteral(parsed.hostname)) return parsed;
+
+  let addrs: string[] = [];
+  try {
+    const lookups = await dns.lookup(parsed.hostname, { all: true });
+    addrs = lookups.map((l) => l.address);
+  } catch (err) {
+    throw new SecurityError(
+      `Could not resolve proxy host "${parsed.hostname}": ${
+        (err as Error).message
+      }`
+    );
+  }
+  for (const ip of addrs) {
+    if (isPrivateOrLoopbackHost(ip)) {
+      throw new SecurityError(
+        `Refusing to use proxy URL "${parsed.hostname}" in production: ` +
+          `it resolves to a private/loopback address (${ip}).`
+      );
+    }
   }
   return parsed;
 }
@@ -124,6 +170,16 @@ function parseHttpOrHttps(url: string, label: string): URL {
     );
   }
   return parsed;
+}
+
+function isIpLiteral(hostname: string): boolean {
+  // IPv4
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return true;
+  // IPv6 (with or without brackets)
+  if (/^[\[]?[0-9a-f:]+[\]]?$/i.test(hostname) && hostname.includes(":")) {
+    return true;
+  }
+  return false;
 }
 
 function matchesSuffix(hostname: string, suffixes: string[]): boolean {

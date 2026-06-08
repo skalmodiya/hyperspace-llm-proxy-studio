@@ -13,7 +13,7 @@ import {
 } from "@/lib/env";
 import { SettingsPatchSchema } from "@/lib/schemas";
 import { fromUnknown, jsonOk, jsonError } from "@/lib/http";
-import { assertProxyUrl, SecurityError } from "@/lib/security";
+import { assertProxyUrlAndResolve, SecurityError } from "@/lib/security";
 import {
   setRuntimeOverride as setAiCoreOverride,
   clearRuntimeOverride as clearAiCoreOverride,
@@ -38,18 +38,18 @@ export async function PATCH(req: NextRequest) {
     // PATCH mutates server-side runtime config (proxy URL, API key, AI Core
     // credentials override). On BTP it must require an Admin scope; outside
     // BTP we allow it but only from loopback/dev.
-    const authz = requireAdmin(req);
+    const authz = await requireAdmin(req);
     if (!authz.ok) return jsonError(authz.reason, authz.status);
 
     const json = await req.json();
     const parsed = SettingsPatchSchema.parse(json);
 
-    // SSRF guard: validate the proxy URL before letting it become an HTTP
-    // target on this server. AI Core service-key URLs are validated inside
-    // setAiCoreOverride() via parseKey().
+    // SSRF guard: validate the proxy URL string-side AND resolve DNS to
+    // ensure no resolved IP points at a private range. AI Core service-key
+    // URLs are validated inside setAiCoreOverride() via parseKey().
     if (parsed.proxyUrl !== undefined) {
       try {
-        assertProxyUrl(parsed.proxyUrl);
+        await assertProxyUrlAndResolve(parsed.proxyUrl);
       } catch (err) {
         if (err instanceof SecurityError) return jsonError(err.message, 400);
         throw err;

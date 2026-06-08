@@ -29,8 +29,8 @@
       "scope": "$XSAPPNAME.User"
     },
     {
-      "//": "Read-only API + UI — the User scope is enough.",
-      "source": "^/api/(models|health|settings|sap-ai-core/resource-groups)$",
+      "//": "Read-only API + UI — User scope. settings is INTENTIONALLY omitted; it has its own Admin-scope rule below.",
+      "source": "^/api/(models|health|sap-ai-core/resource-groups)$",
       "target": "/api/$1",
       "destination": "studio-srv",
       "authenticationType": "xsuaa",
@@ -38,7 +38,7 @@
       "csrfProtection": true
     },
     {
-      "//": "/api/settings PATCH mutates server-side credentials — Admin only. The Next.js handler ALSO checks the JWT scope (defense in depth).",
+      "//": "/api/settings — Admin only at the Approuter (first gate). Next.js re-verifies the JWT scope (defense in depth).",
       "source": "^/api/settings$",
       "target": "/api/settings",
       "destination": "studio-srv",

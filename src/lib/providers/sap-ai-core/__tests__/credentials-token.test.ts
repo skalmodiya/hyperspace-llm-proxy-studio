@@ -92,8 +92,22 @@ describe("AI Core credentials", () => {
       url: "https://attacker.example.com",
     };
     expect(() => setRuntimeOverride(JSON.stringify(evil))).toThrow(
-      /SAP authentication host/i
+      /<tenant>\.authentication\.<region>/i
     );
+  });
+
+  it("rejects token URLs that match .hana.ondemand.com but not the strict XSUAA pattern", () => {
+    // Without the regex tightening these would slip past a naive
+    // ".hana.ondemand.com" suffix allowlist.
+    for (const badUrl of [
+      "https://my-hana-instance.hana.ondemand.com", // HANA, not XSUAA
+      "https://something.authentication.bad.hana.ondemand.com", // wrong region shape
+      "https://authentication.us10.hana.ondemand.com", // missing tenant subdomain
+    ]) {
+      expect(() =>
+        setRuntimeOverride(JSON.stringify({ ...SAMPLE_KEY, url: badUrl }))
+      ).toThrow(/<tenant>\.authentication\.<region>/i);
+    }
   });
 
   it("throws when no source is configured", () => {
