@@ -29,8 +29,14 @@ import { requireAdmin } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET() {
-  return jsonOk(buildPayload());
+export async function GET(req: NextRequest) {
+  // Sensitive operational fields (proxy URL, AI Core apiBase, clientId
+  // preview, token-cache state, retry/timeout settings) are intel for an
+  // attacker. We only return them when the caller passes admin authz.
+  // Non-admin callers still see flags + a boolean "configured" status so
+  // the UI can render its shell and show the admin-token paste card.
+  const authz = await requireAdmin(req);
+  return jsonOk(buildPayload(authz.ok));
 }
 
 export async function PATCH(req: NextRequest) {
@@ -86,23 +92,21 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    return jsonOk(buildPayload());
+    return jsonOk(buildPayload(true));
   } catch (err) {
     return fromUnknown(err);
   }
 }
 
-function buildPayload() {
+function buildPayload(isAdmin: boolean) {
   const env = getEffectiveEnv();
   const aiCoreCreds = tryGetCredentials();
   const status = aiCoreCreds ? tokenStatus(aiCoreCreds) : { hasToken: false, expiresInMs: null };
 
-  return {
-    proxyUrl: env.HYPERSPACE_PROXY_URL,
+  // Public subset — what every caller (including the page-load that needs
+  // to know whether to show the admin-token card) is allowed to see.
+  const base = {
     apiKeySet: env.HYPERSPACE_API_KEY.length > 0,
-    requestTimeoutMs: env.HYPERSPACE_REQUEST_TIMEOUT_MS,
-    retryCount: env.HYPERSPACE_RETRY_COUNT,
-    debug: env.HYPERSPACE_DEBUG,
     flags: {
       hyperspaceEnabled: envFlag(env.ENABLE_HYPERSPACE_PROVIDERS, true),
       sapAiCoreEnabled: envFlag(env.ENABLE_SAP_AI_CORE, true),
@@ -110,8 +114,38 @@ function buildPayload() {
     },
     sapAiCore: {
       configured: aiCoreCreds !== null,
-      // Where the credentials came from. Never returns secrets.
       source: aiCoreCreds?.source ?? "none",
+    },
+  };
+
+  if (!isAdmin) {
+    // Mask everything else — return placeholders so the UI types still match.
+    return {
+      ...base,
+      proxyUrl: "***",
+      requestTimeoutMs: 0,
+      retryCount: 0,
+      debug: false,
+      sapAiCore: {
+        ...base.sapAiCore,
+        apiBase: null,
+        resourceGroup: "***",
+        clientIdPreview: null,
+        tokenCached: false,
+        tokenExpiresInMs: null,
+      },
+      authz: { isAdmin: false },
+    };
+  }
+
+  return {
+    ...base,
+    proxyUrl: env.HYPERSPACE_PROXY_URL,
+    requestTimeoutMs: env.HYPERSPACE_REQUEST_TIMEOUT_MS,
+    retryCount: env.HYPERSPACE_RETRY_COUNT,
+    debug: env.HYPERSPACE_DEBUG,
+    sapAiCore: {
+      ...base.sapAiCore,
       apiBase: aiCoreCreds?.apiBase ?? null,
       resourceGroup: getResourceGroup(),
       // Only the first 8 chars of the clientId — enough to confirm "this is the
@@ -122,5 +156,6 @@ function buildPayload() {
       tokenCached: status.hasToken,
       tokenExpiresInMs: status.expiresInMs,
     },
+    authz: { isAdmin: true },
   };
 }

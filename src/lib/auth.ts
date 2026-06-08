@@ -39,16 +39,35 @@ export async function requireAdmin(req: NextRequest): Promise<AuthzResult> {
     return await verifyXsuaaAdmin(req);
   }
 
-  // Local / Docker — only loopback callers may mutate runtime config.
-  // Read the peer from the actual socket, not from headers.
+  // Non-BTP mode: require either
+  //   (a) a request-time x-studio-admin-token matching STUDIO_ADMIN_TOKEN, OR
+  //   (b) a verifiable loopback socket peer.
+  //
+  // The shared-secret path is the recommended one for Docker / dev because
+  // Next.js's runtime doesn't always surface the socket peer reliably across
+  // adapters. Pick one strong random value, set it in .env.local + docker.env,
+  // and the studio's Settings UI will pass it on every PATCH automatically.
+  const sharedToken = process.env.STUDIO_ADMIN_TOKEN;
+  if (sharedToken && sharedToken.length >= 16) {
+    const provided = req.headers.get("x-studio-admin-token") ?? "";
+    if (constantTimeEquals(provided, sharedToken)) {
+      return { ok: true, subject: "shared-secret" };
+    }
+  }
+
+  // Fallback: socket-peer loopback. Some Next.js runtimes don't expose this
+  // (Edge runtime entirely; some Node-server adapters partially); we
+  // intentionally fail closed when the peer can't be read.
   const peer = trustedPeerIp(req);
   if (peer === null) {
     return {
       ok: false,
       status: 403,
       reason:
-        "Unable to determine client peer address; refusing admin access. " +
-        "If this is BTP, set BTP_TRIM_MODE=true so the XSUAA path is used instead.",
+        "Admin route. Set STUDIO_ADMIN_TOKEN (>=16 chars) and pass it as " +
+        "the 'x-studio-admin-token' header, OR run with BTP_TRIM_MODE=true " +
+        "to use the XSUAA path. The previous IP-based check was disabled " +
+        "because the runtime did not expose the TCP peer.",
     };
   }
   if (!isLoopback(peer)) {
@@ -61,6 +80,15 @@ export async function requireAdmin(req: NextRequest): Promise<AuthzResult> {
     };
   }
   return { ok: true, subject: `loopback:${peer}` };
+}
+
+function constantTimeEquals(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
 }
 
 /**

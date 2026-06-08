@@ -187,6 +187,25 @@ export default function SettingsPage() {
     }
   };
 
+  // --- Admin-token (non-BTP) ---------------------------------------------
+  // PATCH /api/settings requires admin authorization. On BTP the Approuter +
+  // XSUAA forward a JWT; off BTP the user must supply STUDIO_ADMIN_TOKEN
+  // (set in .env.local / docker.env) once. We store it in localStorage and
+  // attach it to every mutating request automatically.
+  const [adminToken, setAdminToken] = React.useState("");
+  const [adminTokenSaved, setAdminTokenSaved] = React.useState(false);
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    setAdminToken(window.localStorage.getItem("studio:admin-token") ?? "");
+  }, []);
+  const onSaveAdminToken = () => {
+    if (typeof window === "undefined") return;
+    if (adminToken) window.localStorage.setItem("studio:admin-token", adminToken);
+    else window.localStorage.removeItem("studio:admin-token");
+    setAdminTokenSaved(true);
+    setTimeout(() => setAdminTokenSaved(false), 1500);
+  };
+
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
@@ -197,6 +216,40 @@ export default function SettingsPage() {
           server to revert to <code className="font-mono">.env</code> defaults.
         </p>
       </div>
+
+      {!settings.data?.flags.btpTrimMode && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              Admin token (non-BTP)
+              {adminToken && <Badge variant="success">stored</Badge>}
+            </CardTitle>
+            <CardDescription>
+              Off-BTP, mutating settings via this page requires a shared
+              token. Copy <code className="font-mono">STUDIO_ADMIN_TOKEN</code>{" "}
+              from your <code className="font-mono">.env.local</code> /{" "}
+              <code className="font-mono">docker.env</code> here once. It&apos;s
+              kept in <code className="font-mono">localStorage</code> and
+              attached as <code className="font-mono">x-studio-admin-token</code>{" "}
+              on every PATCH. On BTP this card is hidden — XSUAA handles auth.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex gap-2">
+              <Input
+                type="password"
+                value={adminToken}
+                onChange={(e) => setAdminToken(e.target.value)}
+                placeholder="Paste STUDIO_ADMIN_TOKEN"
+                className="font-mono"
+              />
+              <Button onClick={onSaveAdminToken}>
+                {adminTokenSaved ? "Saved ✓" : "Save"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

@@ -36,17 +36,25 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   // (the Approuter is the layer that does that on BTP).
   const method = (init?.method ?? "GET").toUpperCase();
   const isMutating = method !== "GET" && method !== "HEAD";
-  const csrfHeader: Record<string, string> = {};
+  const extraHeaders: Record<string, string> = {};
   if (isMutating) {
     const token = await getCsrfToken();
-    if (token) csrfHeader["x-csrf-token"] = token;
+    if (token) extraHeaders["x-csrf-token"] = token;
+    // Non-BTP admin path: the user pastes STUDIO_ADMIN_TOKEN once in
+    // localStorage; we attach it to admin requests automatically. On BTP
+    // this is unused — the Approuter forwards a JWT that Next.js verifies.
+    const adminToken =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem("studio:admin-token")
+        : null;
+    if (adminToken) extraHeaders["x-studio-admin-token"] = adminToken;
   }
 
   const res = await fetch(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...csrfHeader,
+      ...extraHeaders,
       ...(init?.headers ?? {}),
     },
   });
@@ -119,6 +127,10 @@ export interface SettingsResponse {
     tokenCached: boolean;
     tokenExpiresInMs: number | null;
   };
+  /** Indicates whether the GET response was returned in admin (full) form
+   *  or non-admin (masked) form. Useful for the UI to show "paste your
+   *  admin token to see config" rather than blank fields. */
+  authz: { isAdmin: boolean };
 }
 
 export function useSettings() {

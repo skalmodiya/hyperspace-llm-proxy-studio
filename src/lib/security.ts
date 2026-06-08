@@ -191,23 +191,45 @@ function matchesSuffix(hostname: string, suffixes: string[]): boolean {
  * String-only check (no DNS) — covers the common SSRF cases without making
  * the validation flaky behind a DNS hijack. For full defense the runtime
  * should also enforce egress firewall rules at the platform layer.
+ *
+ * Handles IPv4-mapped IPv6 forms (::ffff:127.0.0.1, ::ffff:10.0.0.1, …) by
+ * stripping the prefix and re-checking the embedded IPv4. Also handles the
+ * unspecified addresses (`::`, `0.0.0.0`) and NAT64 ranges.
  */
 function isPrivateOrLoopbackHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
+  let h = hostname.toLowerCase().trim();
+  // Strip IPv6 brackets if present.
+  if (h.startsWith("[") && h.endsWith("]")) h = h.slice(1, -1);
+
+  // IPv4-mapped IPv6 (::ffff:a.b.c.d, or sometimes ::ffff:0:a.b.c.d).
+  // Recurse on the embedded IPv4 so all 10/172.16/192.168/127/169.254/0/CGNAT
+  // ranges are caught — the previous version only matched the literal
+  // ::ffff:127.0.0.1.
+  const v4Mapped = /^::ffff:(?:0:)?(\d{1,3}(?:\.\d{1,3}){3})$/.exec(h);
+  if (v4Mapped) return isPrivateOrLoopbackHost(v4Mapped[1]);
+
+  // Unspecified addresses — never legitimate as outbound targets.
+  if (h === "::" || h === "0.0.0.0") return true;
+
+  // Common host names.
   if (h === "localhost") return true;
   if (h.endsWith(".local") || h.endsWith(".internal")) return true;
-  // IPv4 literals
+
+  // IPv4 literals — RFC1918 + loopback + link-local + CGNAT + reserved 0.x.
   if (/^127\./.test(h)) return true;
   if (/^10\./.test(h)) return true;
   if (/^192\.168\./.test(h)) return true;
   if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(h)) return true;
   if (/^169\.254\./.test(h)) return true;
+  if (/^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./.test(h)) return true; // CGNAT 100.64.0.0/10
   if (/^0\./.test(h)) return true;
-  // IPv6 loopback + link-local + ULA
-  if (h === "::1" || h === "[::1]") return true;
-  if (h.startsWith("fe80:") || h.startsWith("[fe80:")) return true;
-  if (h.startsWith("fc") || h.startsWith("[fc") || h.startsWith("fd") || h.startsWith("[fd")) {
-    return true;
-  }
+
+  // IPv6 — loopback, link-local, ULA, NAT64.
+  if (h === "::1") return true;
+  if (h.startsWith("fe80:")) return true;
+  if (h.startsWith("fc") || h.startsWith("fd")) return true; // ULA fc00::/7
+  if (h.startsWith("64:ff9b:")) return true; // NAT64 well-known prefix
+  if (h.startsWith("64:ff9b:1:")) return true; // NAT64 local-use prefix
+
   return false;
 }
