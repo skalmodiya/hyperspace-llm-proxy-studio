@@ -12,7 +12,8 @@ import {
   setServerEnvOverride,
 } from "@/lib/env";
 import { SettingsPatchSchema } from "@/lib/schemas";
-import { fromUnknown, jsonOk } from "@/lib/http";
+import { fromUnknown, jsonOk, jsonError } from "@/lib/http";
+import { assertProxyUrl, SecurityError } from "@/lib/security";
 import {
   setRuntimeOverride as setAiCoreOverride,
   clearRuntimeOverride as clearAiCoreOverride,
@@ -23,6 +24,7 @@ import {
   getResourceGroup,
 } from "@/lib/providers/sap-ai-core";
 import { tokenStatus } from "@/lib/providers/sap-ai-core/token";
+import { requireAdmin } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -33,8 +35,26 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   try {
+    // PATCH mutates server-side runtime config (proxy URL, API key, AI Core
+    // credentials override). On BTP it must require an Admin scope; outside
+    // BTP we allow it but only from loopback/dev.
+    const authz = requireAdmin(req);
+    if (!authz.ok) return jsonError(authz.reason, authz.status);
+
     const json = await req.json();
     const parsed = SettingsPatchSchema.parse(json);
+
+    // SSRF guard: validate the proxy URL before letting it become an HTTP
+    // target on this server. AI Core service-key URLs are validated inside
+    // setAiCoreOverride() via parseKey().
+    if (parsed.proxyUrl !== undefined) {
+      try {
+        assertProxyUrl(parsed.proxyUrl);
+      } catch (err) {
+        if (err instanceof SecurityError) return jsonError(err.message, 400);
+        throw err;
+      }
+    }
 
     setServerEnvOverride({
       ...(parsed.proxyUrl !== undefined
@@ -57,7 +77,13 @@ export async function PATCH(req: NextRequest) {
     if (parsed.aiCoreClearOverride) {
       clearAiCoreOverride();
     } else if (parsed.aiCoreServiceKeyJson) {
-      setAiCoreOverride(parsed.aiCoreServiceKeyJson);
+      // setAiCoreOverride throws if the URLs aren't on SAP hosts.
+      try {
+        setAiCoreOverride(parsed.aiCoreServiceKeyJson);
+      } catch (err) {
+        if (err instanceof SecurityError) return jsonError(err.message, 400);
+        throw err;
+      }
     }
 
     return jsonOk(buildPayload());

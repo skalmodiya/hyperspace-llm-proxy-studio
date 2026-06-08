@@ -22,13 +22,38 @@
       "authenticationType": "none"
     },
     {
-      "//": "Everything else requires a valid XSUAA JWT with the User scope.",
+      "//": "Standard Approuter CSRF-token endpoint. The browser fetches this with a GET and includes the returned token in the x-csrf-token header on every state-changing request.",
+      "source": "^/csrf-token$",
+      "target": "/rest/csrf-token",
+      "authenticationType": "xsuaa",
+      "scope": "$XSAPPNAME.User"
+    },
+    {
+      "//": "Read-only API + UI — the User scope is enough.",
+      "source": "^/api/(models|health|settings|sap-ai-core/resource-groups)$",
+      "target": "/api/$1",
+      "destination": "studio-srv",
+      "authenticationType": "xsuaa",
+      "scope": "$XSAPPNAME.User",
+      "csrfProtection": true
+    },
+    {
+      "//": "/api/settings PATCH mutates server-side credentials — Admin only. The Next.js handler ALSO checks the JWT scope (defense in depth).",
+      "source": "^/api/settings$",
+      "target": "/api/settings",
+      "destination": "studio-srv",
+      "authenticationType": "xsuaa",
+      "scope": "$XSAPPNAME.Admin",
+      "csrfProtection": true
+    },
+    {
+      "//": "Everything else (chat, embeddings, page routes) requires User. CSRF is enforced for all non-GET methods — clients must include x-csrf-token after fetching /csrf-token.",
       "source": "^/(.*)$",
       "target": "/$1",
       "destination": "studio-srv",
       "authenticationType": "xsuaa",
       "scope": "$XSAPPNAME.User",
-      "csrfProtection": false
+      "csrfProtection": true
     }
   ]
 }

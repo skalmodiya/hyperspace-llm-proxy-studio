@@ -8,12 +8,14 @@ import {
 import { clearTokenCache, getAccessToken } from "../token";
 
 const SAMPLE_KEY = {
-  serviceurls: { AI_API_URL: "https://api.ai.test.example.com" },
+  // Real SAP-shaped hosts so the allowlist in src/lib/security.ts accepts
+  // them (matches the shape of a real service key, just with test values).
+  serviceurls: { AI_API_URL: "https://api.ai.prod.us-east-1.aws.ml.hana.ondemand.com" },
   appname: "test-app",
   clientid: "sb-test-clientid",
   clientsecret: "test-clientsecret",
-  identityzone: "tenant-zone",
-  url: "https://tenant-zone.authentication.us10.hana.ondemand.com",
+  identityzone: "test-tenant",
+  url: "https://test-tenant.authentication.us10.hana.ondemand.com",
   "credential-type": "binding-secret",
   "token-type": ["xsuaa"],
 };
@@ -41,10 +43,10 @@ describe("AI Core credentials", () => {
     });
     const c = getCredentials();
     expect(c.source).toBe("vcap-services");
-    expect(c.apiBase).toBe("https://api.ai.test.example.com");
+    expect(c.apiBase).toBe("https://api.ai.prod.us-east-1.aws.ml.hana.ondemand.com");
     expect(c.clientId).toBe("sb-test-clientid");
     expect(c.tokenUrl).toBe(
-      "https://tenant-zone.authentication.us10.hana.ondemand.com"
+      "https://test-tenant.authentication.us10.hana.ondemand.com"
     );
     expect(c.fingerprint).toMatch(/^[0-9a-f]+$/);
   });
@@ -72,6 +74,26 @@ describe("AI Core credentials", () => {
     expect(() =>
       setRuntimeOverride(JSON.stringify({ clientid: "x" }))
     ).toThrow();
+  });
+
+  it("rejects service keys whose API host is outside the SAP allowlist (SSRF guard)", () => {
+    const evil = {
+      ...SAMPLE_KEY,
+      serviceurls: { AI_API_URL: "https://attacker.example.com" },
+    };
+    expect(() => setRuntimeOverride(JSON.stringify(evil))).toThrow(
+      /SAP-controlled host/i
+    );
+  });
+
+  it("rejects service keys whose token URL is outside the SAP allowlist (SSRF guard)", () => {
+    const evil = {
+      ...SAMPLE_KEY,
+      url: "https://attacker.example.com",
+    };
+    expect(() => setRuntimeOverride(JSON.stringify(evil))).toThrow(
+      /SAP authentication host/i
+    );
   });
 
   it("throws when no source is configured", () => {
@@ -108,7 +130,7 @@ describe("AI Core token cache", () => {
       [string, RequestInit | undefined]
     >;
     expect(calls[0][0]).toBe(
-      "https://tenant-zone.authentication.us10.hana.ondemand.com/oauth/token"
+      "https://test-tenant.authentication.us10.hana.ondemand.com/oauth/token"
     );
     const headers = calls[0][1]?.headers as Record<string, string>;
     expect(headers.Authorization).toMatch(/^Basic /);

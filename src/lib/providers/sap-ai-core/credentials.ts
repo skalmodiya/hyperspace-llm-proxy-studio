@@ -13,6 +13,7 @@
  */
 import { readFileSync } from "node:fs";
 import { z } from "zod";
+import { assertAiCoreApiUrl, assertXsuaaTokenUrl } from "@/lib/security";
 
 const RawKeySchema = z.object({
   serviceurls: z.object({
@@ -144,11 +145,18 @@ function discover(): AiCoreCredentials | null {
 
 function parseKey(raw: unknown, source: CredentialSource): AiCoreCredentials {
   const parsed = RawKeySchema.parse(raw);
+  // Block service keys whose URLs don't resolve to SAP-controlled hosts.
+  // Without this check, an attacker who can paste a "service key" via the
+  // Settings UI could redirect token exchange to their own server and steal
+  // the bearer JWT. The string-suffix check here defends against the most
+  // common SSRF vectors; combine with platform-level egress rules.
+  const apiUrl = assertAiCoreApiUrl(parsed.serviceurls.AI_API_URL);
+  const tokenUrl = assertXsuaaTokenUrl(parsed.url);
   return {
-    apiBase: parsed.serviceurls.AI_API_URL.replace(/\/$/, ""),
+    apiBase: apiUrl.toString().replace(/\/$/, ""),
     clientId: parsed.clientid,
     clientSecret: parsed.clientsecret,
-    tokenUrl: parsed.url.replace(/\/$/, ""),
+    tokenUrl: tokenUrl.toString().replace(/\/$/, ""),
     source,
     fingerprint: hashFingerprint(parsed.clientid),
   };

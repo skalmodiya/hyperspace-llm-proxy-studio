@@ -9,10 +9,10 @@ import { clearTokenCache } from "../token";
 import { clearDeploymentCache } from "../deployments";
 
 const SAMPLE_KEY = {
-  serviceurls: { AI_API_URL: "https://api.ai.test.example.com" },
+  serviceurls: { AI_API_URL: "https://api.ai.prod.us-east-1.aws.ml.hana.ondemand.com" },
   clientid: "sb-test",
   clientsecret: "secret",
-  url: "https://tenant.authentication.us10.hana.ondemand.com",
+  url: "https://test-tenant.authentication.us10.hana.ondemand.com",
 };
 
 const DEPLOYMENTS = {

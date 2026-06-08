@@ -30,9 +30,25 @@ export interface ModelsResponse {
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  // For state-changing methods we need to attach the Approuter's CSRF token.
+  // On non-BTP runs (no Approuter) the /csrf-token endpoint returns 404 and
+  // we silently proceed — the Next.js handlers don't enforce CSRF themselves
+  // (the Approuter is the layer that does that on BTP).
+  const method = (init?.method ?? "GET").toUpperCase();
+  const isMutating = method !== "GET" && method !== "HEAD";
+  const csrfHeader: Record<string, string> = {};
+  if (isMutating) {
+    const token = await getCsrfToken();
+    if (token) csrfHeader["x-csrf-token"] = token;
+  }
+
   const res = await fetch(url, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...csrfHeader,
+      ...(init?.headers ?? {}),
+    },
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -42,6 +58,26 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error(msg);
   }
   return json as T;
+}
+
+let csrfTokenCache: string | null = null;
+async function getCsrfToken(): Promise<string | null> {
+  if (csrfTokenCache) return csrfTokenCache;
+  try {
+    const res = await fetch("/csrf-token", {
+      method: "GET",
+      headers: { "x-csrf-token": "fetch" }, // Approuter convention
+    });
+    // Approuter returns the token in the response header on a successful GET.
+    const t = res.headers.get("x-csrf-token");
+    if (t && t !== "required") {
+      csrfTokenCache = t;
+      return t;
+    }
+  } catch {
+    /* no Approuter — local dev path */
+  }
+  return null;
 }
 
 export function useHealth() {
