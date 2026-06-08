@@ -75,6 +75,14 @@ export function assertXsuaaTokenUrl(url: string): URL {
  */
 export function assertProxyUrl(url: string): URL {
   const parsed = parseHttpOrHttps(url, "proxy URL");
+
+  // host.docker.internal is the canonical Docker Desktop / Compose alias for
+  // the host machine. It's injected by the platform, not by the network, so
+  // an attacker can't influence its resolution. Allowlist it explicitly so
+  // the standard "container in compose talks to a service on the host"
+  // pattern keeps working under NODE_ENV=production.
+  if (parsed.hostname === "host.docker.internal") return parsed;
+
   if (process.env.NODE_ENV === "production" && isPrivateOrLoopbackHost(parsed.hostname)) {
     throw new SecurityError(
       `Refusing to use proxy URL "${parsed.hostname}" in production. ` +
@@ -108,6 +116,9 @@ export function assertProxyUrl(url: string): URL {
 export async function assertProxyUrlAndResolve(url: string): Promise<URL> {
   const parsed = assertProxyUrl(url);
   if (process.env.NODE_ENV !== "production") return parsed;
+  // host.docker.internal is operator-controlled and platform-injected; the
+  // DNS resolution would always point at a private IP by design.
+  if (parsed.hostname === "host.docker.internal") return parsed;
 
   // Skip DNS resolution if the host is already a literal IP — assertProxyUrl
   // covered that case via isPrivateOrLoopbackHost.
